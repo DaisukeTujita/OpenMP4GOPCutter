@@ -1,0 +1,13 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {findGopAtTime,resolveGopRange,snapIn,snapOut} from '../src/media/gop';
+import {hasIdr} from '../src/media/analysis';
+import type {Mp4Analysis} from '../src/media/types';
+const analysis:Mp4Analysis={fileName:'test.mp4',width:640,height:360,duration:4,audio:null,gops:[0,1,2,3].map(index=>({index,start:index,end:index+1,frameCount:30}))};
+test('current position is contained by IN and OUT snapping',()=>{assert.equal(snapIn(analysis.gops,1.8),1);assert.equal(snapOut(analysis.gops,1.8),2);});
+test('exact boundary OUT includes the GOP starting there',()=>{assert.equal(snapIn(analysis.gops,1),1);assert.equal(snapOut(analysis.gops,1),2);assert.equal(findGopAtTime(analysis.gops,1).index,1);});
+test('range expands outward, includes OUT point, and counts frames',()=>{assert.deepEqual(resolveGopRange(analysis,{inSeconds:1.8,outSeconds:2}),{firstGop:1,lastGop:2,start:1,end:3,duration:2,frameCount:60});});
+test('same point includes one GOP, EOF is an allowed OUT only',()=>{assert.equal(resolveGopRange(analysis,{inSeconds:2,outSeconds:2}).duration,1);assert.equal(snapOut(analysis.gops,4),4);assert.equal(resolveGopRange(analysis,{inSeconds:1,outSeconds:4}).frameCount,90);assert.throws(()=>snapIn(analysis.gops,4));});
+test('fractional NTSC GOP times are not rounded to whole seconds',()=>{const a={...analysis,duration:4.004,gops:[{index:0,start:0,end:2.002,frameCount:60},{index:1,start:2.002,end:4.004,frameCount:60}]};assert.equal(snapIn(a.gops,2.001),0);assert.equal(snapOut(a.gops,2.002),4.004);});
+test('invalid positions fail',()=>{for(const p of [{inSeconds:-1,outSeconds:1},{inSeconds:2,outSeconds:1},{inSeconds:0,outSeconds:5},{inSeconds:NaN,outSeconds:1}])assert.throws(()=>resolveGopRange(analysis,p));});
+test('IDR is identified from NAL units, non-IDR I-frame is not enough',()=>{assert.equal(hasIdr(new Uint8Array([0,0,0,2,0x65,1]),4),true);assert.equal(hasIdr(new Uint8Array([0,0,0,2,0x61,1]),4),false);assert.equal(hasIdr(new Uint8Array([0,0,0,8,0x65]),4),false);});
